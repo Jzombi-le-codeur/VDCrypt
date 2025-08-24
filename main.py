@@ -10,11 +10,18 @@ class VDCrypt:
         self.table = []  # Voir "test template table.json"
         self.previous_element_end = 0
 
-    def get_folders(self, path, directories):
-        # Récupérer les fichiers
+    def get_datas(self, path, directories, directory_infos=None):
+        # Récupérer les éléments (fichiers et dossiers)
         listdir = os.listdir(path)
         if "System Volume Information" in listdir:
             listdir.remove("System Volume Information")
+
+        # Récupérer uniquement les dossiers
+        fileslistdir = listdir.copy()
+        for element in fileslistdir:
+            element_path = os.path.join(path, element)
+            if os.path.isdir(element_path):
+                fileslistdir.remove(element)
 
         # Récupérer les données des fichiers
         for element in listdir:
@@ -41,12 +48,7 @@ class VDCrypt:
                 infos["size"] = os.path.getsize(element_path)
 
                 # Définir là où le fichier commence et se termine
-                if listdir[0] == element:
-                    infos["start"] = 0  # Si le fichier est le premier, il commence à 0
-
-                else:
-                    # Sinon il commence là où le fichier précédent s'est arrêté
-                    infos["start"] = self.previous_element_end
+                infos["start"] = self.previous_element_end
 
                 infos["end"] = infos["start"] + infos["size"]  # Calculer là où le fichier se termine
 
@@ -55,15 +57,41 @@ class VDCrypt:
                 print(infos)
 
                 # Mettre à jour la table des fichiers
-                self.table.append(infos)
+                if path == self.root:
+                    self.table.append(infos)
+
+                else:
+                    directory_infos["content"].append(infos)
                 print(self.table)
 
-                # Supprimer les fichiers
+                # Supprimer le fichier
                 os.remove(element_path)
 
-    def create_container(self):
-        self.get_folders(path=self.root, directories=[self.root])
+            elif os.path.isdir(element_path):
+                dirname = os.path.basename(element_path)
+                infos = {}
+                infos["name"] = dirname
+                infos["type"] = "folder"
+                infos["content"] = []
 
+                # Mettre à jour la table des fichiers
+                if path == self.root:
+                    self.table.append(infos)
+
+                else:
+                    directory_infos["content"].append(infos)
+
+                new_directory = directories + [dirname]
+                new_path = os.path.join(path, dirname)
+
+                self.get_datas(path=new_path, directories=new_directory, directory_infos=infos)
+
+                # Supprimer le dossier
+                os.rmdir(element_path)
+
+    def create_container(self):
+        self.get_datas(path=self.root, directories=[self.root])
+        print("final", self.table)
         """ SAUVEGARDE """
         # Sauver les données des fichiers
         datas_path = os.path.join(self.root, "datas")
@@ -110,8 +138,8 @@ class VDCrypt:
         os.remove(table_path)
 
     def run(self):
-        self.create_container()
-        # self.load_container()
+        # self.create_container()
+        self.load_container()
 
 
 if __name__ == "__main__":

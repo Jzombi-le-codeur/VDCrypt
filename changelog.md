@@ -1,5 +1,8 @@
+# Ajouts
+- Ajout d'une fonctionnalité pour ajouter les (sous-)dossiers dans la table, et sauvegarder les données des fichiers dans ceux-ci
+
 # Modifications
-- La fonction pour créer le contenu des fichiers `datas` et `table.json` a été déplacé dans la fonction `get_folders()`
+- `get_folders()` devient `get_datas()`
 
 # Corrections
-- Les fichiers `datas` et `table.json` sont mainteant supprimés après le chargement des fichiers dans `load_container()`
+- Correction d'un problème logique qui rendait impossible l'ajout de dossier dans la table (clc >:( )
