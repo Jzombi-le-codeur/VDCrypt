@@ -41,7 +41,7 @@ class VDCrypt:
                 print(self.datas)
 
                 """ CREATION TABLE """
-                # Ajouter le fichier dans la table
+                # Ajouter les métadonnées du fichier
                 infos = {}
                 infos["name"] = element
                 infos["type"] = "file"
@@ -68,10 +68,10 @@ class VDCrypt:
                 os.remove(element_path)
 
             elif os.path.isdir(element_path):
-                dirname = os.path.basename(element_path)
+                # Ajouter les métadonnées du dossier
                 infos = {}
-                infos["name"] = dirname
-                infos["type"] = "folder"
+                infos["name"] = element
+                infos["type"] = "directory"
                 infos["content"] = []
 
                 # Mettre à jour la table des fichiers
@@ -81,10 +81,11 @@ class VDCrypt:
                 else:
                     directory_infos["content"].append(infos)
 
-                new_directory = directories + [dirname]
-                new_path = os.path.join(path, dirname)
+                # Créer les informations du répertoire pour récupérer ses éléments
+                new_directory = directories + [element]
 
-                self.get_datas(path=new_path, directories=new_directory, directory_infos=infos)
+                # Récupérer les éléments du dossier
+                self.get_datas(path=element_path, directories=new_directory, directory_infos=infos)
 
                 # Supprimer le dossier
                 os.rmdir(element_path)
@@ -105,6 +106,27 @@ class VDCrypt:
             json.dump(self.table, table_file)
             table_file.close()
 
+    def set_datas(self, path, directory):
+        # Parcourir les éléments
+        for element in directory:
+            # Obtenir le chemin de l'élément
+            element_path = os.path.join(path, element["name"])
+
+            # Vérifier que l'élément est un fichier ou un dossier
+            if element["type"] == "file":
+                # Ecrire le contenu du fichier dans le fichier
+                with open(element_path, "wb") as file:
+                    # Ecrire du byte de départ au byte de fin
+                    file.write(self.datas[element["start"]:element["end"]])
+                    file.close()
+
+            elif element["type"] == "directory":
+                # Créer le dossier
+                os.mkdir(element_path)
+
+                # Créer les éléments du dossier
+                self.set_datas(path=element_path, directory=element["content"])
+
     def load_container(self):
         """ CHARGEMENT DES FICHIERS DE DONNEES """
         # Charger les données
@@ -122,16 +144,7 @@ class VDCrypt:
             print(self.table)
 
         """ Création fichiers """
-        # Parcourir chaque élément
-        for element in self.table:
-            path = os.path.join(self.root, element["name"])
-            # Vérifier que l'élément est un fichier
-            if element["type"] == "file":
-                # Ecrire le contenu du fichier dans le fichier
-                with open(path, "wb") as file:
-                    # Ecrire du byte de départ au byte de fin
-                    file.write(self.datas[element["start"]:element["end"]])
-                    file.close()
+        self.set_datas(path=self.root, directory=self.table)
 
         # Supprimer les fichiers de table
         os.remove(datas_path)
@@ -139,7 +152,7 @@ class VDCrypt:
 
     def run(self):
         # self.create_container()
-        self.load_container()
+        # self.load_container()
 
 
 if __name__ == "__main__":
