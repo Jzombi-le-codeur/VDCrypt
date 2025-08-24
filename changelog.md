@@ -1,7 +1,5 @@
-# Ajouts
-- Création du projet
-- Ajout d'un système de sauvegarde/chargement de fichiers
-  - Ne fonctionne uniquement sur les fichiers d'un dossier racine
-  - Fonctionne à partir d'un système de container en deux fichiers
-    - `table.json` : Contient les métadonnées des fichiers
-    - `datas` : Contient les données des fichiers (bytes concaténés)
+# Modifications
+- La fonction pour créer le contenu des fichiers `datas` et `table.json` a été déplacé dans la fonction `get_folders()`
+
+# Corrections
+- Les fichiers `datas` et `table.json` sont mainteant supprimés après le chargement des fichiers dans `load_container()`

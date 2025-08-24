@@ -5,5 +5,18 @@
     "size": 6,
     "start": 0,
     "end": 6
+  },
+  {
+    "name": "directoryname",
+    "type": "directory",
+    "content": [
+      {
+        "name": "filename",
+        "type": "file",
+        "size": 6,
+        "start": 0,
+        "end": 6
+      }
+    ]
   }
 ]
