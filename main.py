@@ -1,6 +1,7 @@
 import os
 import pathlib
 import json
+import struct
 
 
 class VDCrypt:
@@ -10,7 +11,7 @@ class VDCrypt:
         self.table = []  # Voir "test template table.json"
         self.previous_element_end = 0
 
-    def get_datas(self, path, directories, directory_infos=None):
+    def __get_datas(self, path, directories, directory_infos=None):
         # Récupérer les éléments (fichiers et dossiers)
         listdir = os.listdir(path)
         if "System Volume Information" in listdir:
@@ -27,7 +28,6 @@ class VDCrypt:
         for element in listdir:
             # Récupérer le chemin de l'élément (probablement à changer car prend pas en compte sous dossiers jpense)
             element_path = os.path.join(path, element)
-            print(f"Element path : {element_path}")
 
             # Vérifier si l'élément est un fichier
             if os.path.isfile(element_path):
@@ -37,8 +37,6 @@ class VDCrypt:
                     file_content = file.read()
                     self.datas.extend(file_content)  # Ajouter les donnés du fichier à la liste des données des fichiers
                     file.close()
-
-                print(self.datas)
 
                 """ CREATION TABLE """
                 # Ajouter les métadonnées du fichier
@@ -54,7 +52,6 @@ class VDCrypt:
 
                 # Mettre à jour la variable contenant le point de fin du précédent
                 self.previous_element_end = infos["end"]
-                print(infos)
 
                 # Mettre à jour la table des fichiers
                 if path == self.root:
@@ -62,7 +59,6 @@ class VDCrypt:
 
                 else:
                     directory_infos["content"].append(infos)
-                print(self.table)
 
                 # Supprimer le fichier
                 os.remove(element_path)
@@ -85,28 +81,31 @@ class VDCrypt:
                 new_directory = directories + [element]
 
                 # Récupérer les éléments du dossier
-                self.get_datas(path=element_path, directories=new_directory, directory_infos=infos)
+                self.__get_datas(path=element_path, directories=new_directory, directory_infos=infos)
 
                 # Supprimer le dossier
                 os.rmdir(element_path)
 
     def create_container(self):
-        self.get_datas(path=self.root, directories=[self.root])
-        print("final", self.table)
+        # Récupérer les données des fichiers & créer la table
+        self.__get_datas(path=self.root, directories=[self.root])
+
+        # Encoder la table
+        table = json.dumps(self.table).encode("utf-8")
+
+        # Récupérer la taille de la table
+        table_bytes = len(table)  # Récupérer la taille de la table
+        header = struct.pack(">Q", table_bytes)  # Mettre le header en bytes
+
         """ SAUVEGARDE """
-        # Sauver les données des fichiers
-        datas_path = os.path.join(self.root, "datas")
-        with open(datas_path, "wb") as datas_file:
-            datas_file.write(self.datas)
-            datas_file.close()
+        vd_path = os.path.join(self.root, "vdisk.vdcr")
+        with open(vd_path, "wb") as vd_file:
+            vd_file.write(header)  # Ecrire le header
+            vd_file.write(table)  # Ecrire la table
+            vd_file.write(self.datas)  # Ecrire les données des fichiers
+            vd_file.close()  # Fermer les fichiers
 
-        # Sauvegarder la table de fichiers
-        table_path = os.path.join(self.root, "table.json")
-        with open(table_path, "w") as table_file:
-            json.dump(self.table, table_file)
-            table_file.close()
-
-    def set_datas(self, path, directory):
+    def __set_datas(self, path, directory):
         # Parcourir les éléments
         for element in directory:
             # Obtenir le chemin de l'élément
@@ -125,30 +124,22 @@ class VDCrypt:
                 os.mkdir(element_path)
 
                 # Créer les éléments du dossier
-                self.set_datas(path=element_path, directory=element["content"])
+                self.__set_datas(path=element_path, directory=element["content"])
 
     def load_container(self):
-        """ CHARGEMENT DES FICHIERS DE DONNEES """
-        # Charger les données
-        datas_path = os.path.join(self.root, "datas")
-        with open(datas_path, "rb") as datas_file:
-            self.datas = datas_file.read()
-            datas_file.close()
-            print(self.datas)
-
-        # Charger la table
-        table_path = os.path.join(self.root, "table.json")
-        with open(table_path, "r") as table_file:
-            self.table = json.load(table_file)
-            table_file.close()
-            print(self.table)
+        """ CHARGEMENT DU FICHIER """
+        vd_path = os.path.join(self.root, "vdisk.vdcr")
+        with open(vd_path, "rb") as vd_file:
+            header = struct.unpack(">Q", vd_file.read(8))[0]
+            self.table = vd_file.read(header).decode("utf-8")
+            self.table = json.loads(self.table)
+            self.datas = vd_file.read()
 
         """ Création fichiers """
-        self.set_datas(path=self.root, directory=self.table)
+        self.__set_datas(path=self.root, directory=self.table)
 
         # Supprimer les fichiers de table
-        os.remove(datas_path)
-        os.remove(table_path)
+        os.remove(vd_path)
 
     def run(self):
         # self.create_container()
