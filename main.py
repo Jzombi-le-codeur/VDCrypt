@@ -2,14 +2,19 @@ import os
 import pathlib
 import json
 import struct
+from cryptography.fernet import Fernet
 
 
 class VDCrypt:
     def __init__(self):
         self.root = pathlib.Path("F:\\")
+        self.key_file_location = "."
+        self.key = None
+        self.header = None
         self.datas = bytearray()
         self.table = []  # Voir "test template table.json"
         self.previous_element_end = 0
+        self.container_content = bytearray()
 
     def __get_datas(self, path, directories, directory_infos=None):
         # Récupérer les éléments (fichiers et dossiers)
@@ -86,23 +91,56 @@ class VDCrypt:
                 # Supprimer le dossier
                 os.rmdir(element_path)
 
+    def __create_crypted_container_content(self):
+        # Créer le contenu du container
+        self.container_content.extend(self.header)
+        self.container_content.extend(self.table)
+        self.container_content.extend(self.datas)
+
+        """ Récupérer la clé """
+        # Vérifier si la clé existe ou non
+        key_file_path = os.path.join(self.key_file_location, "key.json")
+        if os.path.exists(key_file_path):
+            # Charger le fichier contenant la clé
+            with open("key.json", "r") as key_file:
+                key_file_content = json.load(key_file)
+                key_file.close()
+
+            # Récupérer la clé
+            self.key = key_file_content["key"].encode("utf-8")
+
+        else:
+            # Générer la clé
+            self.key = Fernet.generate_key()
+
+            # Sauvegarder la clé
+            with open(key_file_path, "w") as key_file:
+                key_file_content = {"key": self.key.decode("utf-8")}
+                json.dump(key_file_content, key_file)
+                key_file.close()
+
+        """ Chiffrer le contenu du container """
+        f = Fernet(self.key)
+        self.container_content = f.encrypt(bytes(self.container_content))
+
     def create_container(self):
         # Récupérer les données des fichiers & créer la table
         self.__get_datas(path=self.root, directories=[self.root])
 
         # Encoder la table
-        table = json.dumps(self.table).encode("utf-8")
+        self.table = json.dumps(self.table).encode("utf-8")
 
         # Récupérer la taille de la table
-        table_bytes = len(table)  # Récupérer la taille de la table
-        header = struct.pack(">Q", table_bytes)  # Mettre le header en bytes
+        table_bytes = len(self.table)  # Récupérer la taille de la table
+        self.header = struct.pack(">Q", table_bytes)  # Mettre le header en bytes
+
+        # Créer le contenu chiffré du container
+        self.__create_crypted_container_content()
 
         """ SAUVEGARDE """
         vd_path = os.path.join(self.root, "vdisk.vdcr")
         with open(vd_path, "wb") as vd_file:
-            vd_file.write(header)  # Ecrire le header
-            vd_file.write(table)  # Ecrire la table
-            vd_file.write(self.datas)  # Ecrire les données des fichiers
+            vd_file.write(self.container_content)
             vd_file.close()  # Fermer les fichiers
 
     def __set_datas(self, path, directory):
@@ -126,12 +164,41 @@ class VDCrypt:
                 # Créer les éléments du dossier
                 self.__set_datas(path=element_path, directory=element["content"])
 
-    def load_container(self):
-        """ CHARGEMENT DU FICHIER """
+    def __get_clear_container_content(self):
+        # Charger la clé si ce n'a pas été fait
+        if self.key is None:
+            key_file_path = os.path.join(self.key_file_location, "key.json")
+            with open(key_file_path, "r") as key_file:
+                key_file_content = json.load(key_file)
+                key_file.close()
+
+            # Récupérer la clé
+            self.key = key_file_content["key"].encode("utf-8")
+
+        """ Déchiffrer le contenu et le re-sauvegarder """
+        f = Fernet(self.key)
+        # Charger le fichier chiffré
         vd_path = os.path.join(self.root, "vdisk.vdcr")
         with open(vd_path, "rb") as vd_file:
-            header = struct.unpack(">Q", vd_file.read(8))[0]
-            self.table = vd_file.read(header).decode("utf-8")
+            vd_file_content = vd_file.read()
+            vd_file.close()
+
+        self.container_content = f.decrypt(vd_file_content)
+
+        # Réécrire le contenu déchiffré
+        with open(vd_path, "wb") as vd_file:
+            vd_file.write(self.container_content)
+            vd_file.close()
+
+    def load_container(self):
+        """ CHARGEMENT DU FICHIER """
+        # Déchiffrer le contenu du container
+        self.__get_clear_container_content()
+
+        vd_path = os.path.join(self.root, "vdisk.vdcr")
+        with open(vd_path, "rb") as vd_file:
+            self.header = struct.unpack(">Q", vd_file.read(8))[0]
+            self.table = vd_file.read(self.header).decode("utf-8")
             self.table = json.loads(self.table)
             self.datas = vd_file.read()
 
@@ -142,7 +209,7 @@ class VDCrypt:
         os.remove(vd_path)
 
     def run(self):
-        # self.create_container()
+        self.create_container()
         # self.load_container()
 
 
