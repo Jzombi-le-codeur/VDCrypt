@@ -11,6 +11,7 @@ class VDCrypt:
         self.key_file_location = "."
         self.key = None
         self.f = None
+        self.__get_key()  # Charger la clé
         self.header = None
         self.datas = bytearray()
         self.table = []  # Voir "test template table.json"
@@ -124,9 +125,6 @@ class VDCrypt:
         self.container_content.extend(self.table)
         self.container_content.extend(self.datas)
 
-        """ Récupérer la clé """
-        self.__get_key()
-
         """ Chiffrer le contenu du container """
         self.container_content = self.f.encrypt(bytes(self.container_content))
 
@@ -172,9 +170,6 @@ class VDCrypt:
                 self.__set_datas(path=element_path, directory=element["content"])
 
     def __get_clear_container_content(self):
-        # Charger la clé si ce n'a pas été fait
-        self.__get_key()
-
         """ Déchiffrer le contenu et le re-sauvegarder """
         # Charger le fichier chiffré
         vd_path = os.path.join(self.root, "vdisk.vdcr")
@@ -208,8 +203,8 @@ class VDCrypt:
         os.remove(vd_path)
 
     def run(self):
-        self.create_container()
-        # self.load_container()
+        # self.create_container()
+        self.load_container()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
+# Version 0.4.2
+
 # Ajouts
-- Ajout d'une méthode `__get_key()` pour charger la clé de chiffrage du contenu du container
+- Ajout de la version sur le changelog
 
 # Modifications
-- Les méthodes passent maintenant par `__get_key()` pour récupérer la clé de chiffrage
+- La clé est désormais chargé dès que `VDCrypt` est instancié
