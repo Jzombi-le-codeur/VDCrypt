@@ -64,21 +64,16 @@ class VDCrypt:
             # Récupérer le chemin de l'élément (probablement à changer car prend pas en compte sous dossiers jpense)
             element_path = os.path.join(path, element)
 
-            print(f"\n\n---------- {element_path} ----------")
-
             # Vérifier si l'élément est un fichier
             if os.path.isfile(element_path):
                 """ RECUPERATION DONNEES FICHIERS """
                 # Récupérer le contenu du fichier
                 with open(element_path, "rb") as file:
                     file_content = file.read()
-                    print(f"{element_path}'s content : {file_content}")
                     crypted_file_content = self.f.encrypt(file_content)  # Chiffrer le contenu du fichier
-                    print(f"{element_path}'s content : {crypted_file_content}")
 
                     # Ajouter les donnés chiffrées du fichier à la liste des données chiffrées des fichiers
                     self.crypted_datas.extend(crypted_file_content)
-                    print(f"Données chiffrées : {self.crypted_datas}")
 
                     file.close()
 
@@ -107,8 +102,6 @@ class VDCrypt:
 
                 else:
                     directory_infos["content"].append(infos)
-
-                print(f"Table : {self.table}")
 
                 # Supprimer le fichier
                 os.remove(element_path)
