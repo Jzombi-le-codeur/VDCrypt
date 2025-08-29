@@ -202,13 +202,13 @@ class VDCrypt:
         vd_path = os.path.join(self.root, "vdisk.vdcr")
         with open(vd_path, "rb") as vd_file:
             self.header = vd_file.read(14)  # Récupérer le header packé
-            self.__get_header()
-            self.table = vd_file.read(self.table_length).decode("utf-8")
-            self.table = json.loads(self.table)
-            self.datas = vd_file.read()
+            self.__get_header()  # Récupérer le header, le format et la longueur de la table
+            self.table = vd_file.read(self.table_length).decode("utf-8")  # Récupérer la table
+            self.table = json.loads(self.table)  # Avoir le bon format de la table
+            self.datas = vd_file.read()  # Récupérer les données des fichiers
 
         """ Création fichiers """
-        self.__set_datas(path=self.root, directory=self.table)
+        self.__set_datas(path=self.root, directory=self.table)  # Recréer les fichiers et dossiers
 
         # Supprimer les fichiers de table
         os.remove(vd_path)
