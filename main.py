@@ -7,6 +7,8 @@ from cryptography.fernet import Fernet
 
 class VDCrypt:
     def __init__(self):
+        self.format = "vdscc"
+        self.table_length = 0
         self.root = pathlib.Path("F:\\")
         self.key_file_location = "."
         self.key = None
@@ -129,6 +131,13 @@ class VDCrypt:
                 # Supprimer le dossier
                 os.rmdir(element_path)
 
+    def __create_header(self):
+        # Récupérer la taille de la table
+        self.table_length = len(self.table)
+
+        # Packer le format du container (en 6 octets) + la table (en 8 octets)
+        self.header = struct.pack(">6sQ", self.format.encode("utf-8"), self.table_length)
+
     def __create_container_content(self):
         # Créer le contenu du container
         self.container_content.extend(self.header)
@@ -142,9 +151,8 @@ class VDCrypt:
         # Encoder la table
         self.table = json.dumps(self.table).encode("utf-8")
 
-        # Récupérer la taille de la table
-        table_bytes = len(self.table)  # Récupérer la taille de la table
-        self.header = struct.pack(">Q", table_bytes)  # Mettre le header en bytes
+        # Créer le header
+        self.__create_header()
 
         # Créer le contenu du container
         self.__create_container_content()
@@ -154,6 +162,18 @@ class VDCrypt:
         with open(vd_path, "wb") as vd_file:
             vd_file.write(self.container_content)
             vd_file.close()  # Fermer les fichiers
+
+    def __get_header(self):
+        # Unpacker le header
+        unpacked_header = struct.unpack(">6sQ", self.header)
+
+        # Récupérer le format
+        self.format = unpacked_header[0]  # Récupérer le format "binarisé"
+        self.format = self.format.split(b"\x00")  # Supprimer le padding
+        self.format = self.format[0].decode("utf-8")  # Récupérer le format
+
+        # Récupérer la taille de la table
+        self.table_length = unpacked_header[1]
 
     def __set_datas(self, path, directory):
         # Parcourir les éléments
@@ -181,8 +201,9 @@ class VDCrypt:
         """ CHARGEMENT DU FICHIER """
         vd_path = os.path.join(self.root, "vdisk.vdcr")
         with open(vd_path, "rb") as vd_file:
-            self.header = struct.unpack(">Q", vd_file.read(8))[0]
-            self.table = vd_file.read(self.header).decode("utf-8")
+            self.header = vd_file.read(14)  # Récupérer le header packé
+            self.__get_header()
+            self.table = vd_file.read(self.table_length).decode("utf-8")
             self.table = json.loads(self.table)
             self.datas = vd_file.read()
 
