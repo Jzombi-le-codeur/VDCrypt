@@ -14,84 +14,11 @@ class VDCrypt:
         self.__get_key()  # Charger la clé
         self.header = None
         self.datas = bytearray()
+        self.crypted_datas = bytearray()
         self.table = []  # Voir "test template table.json"
         self.previous_element_end = 0
+        self.previous_crypted_element_end = 0
         self.container_content = bytearray()
-
-    def __get_datas(self, path, directories, directory_infos=None):
-        # Récupérer les éléments (fichiers et dossiers)
-        listdir = os.listdir(path)
-        if "System Volume Information" in listdir:
-            listdir.remove("System Volume Information")
-
-        # Récupérer uniquement les dossiers
-        fileslistdir = listdir.copy()
-        for element in fileslistdir:
-            element_path = os.path.join(path, element)
-            if os.path.isdir(element_path):
-                fileslistdir.remove(element)
-
-        # Récupérer les données des fichiers
-        for element in listdir:
-            # Récupérer le chemin de l'élément (probablement à changer car prend pas en compte sous dossiers jpense)
-            element_path = os.path.join(path, element)
-
-            # Vérifier si l'élément est un fichier
-            if os.path.isfile(element_path):
-                """ RECUPERATION DONNEES FICHIERS """
-                # Récupérer le contenu du fichier
-                with open(element_path, "rb") as file:
-                    file_content = file.read()
-                    self.datas.extend(file_content)  # Ajouter les donnés du fichier à la liste des données des fichiers
-                    file.close()
-
-                """ CREATION TABLE """
-                # Ajouter les métadonnées du fichier
-                infos = {}
-                infos["name"] = element
-                infos["type"] = "file"
-                infos["size"] = os.path.getsize(element_path)
-
-                # Définir là où le fichier commence et se termine
-                infos["start"] = self.previous_element_end
-
-                infos["end"] = infos["start"] + infos["size"]  # Calculer là où le fichier se termine
-
-                # Mettre à jour la variable contenant le point de fin du précédent
-                self.previous_element_end = infos["end"]
-
-                # Mettre à jour la table des fichiers
-                if path == self.root:
-                    self.table.append(infos)
-
-                else:
-                    directory_infos["content"].append(infos)
-
-                # Supprimer le fichier
-                os.remove(element_path)
-
-            elif os.path.isdir(element_path):
-                # Ajouter les métadonnées du dossier
-                infos = {}
-                infos["name"] = element
-                infos["type"] = "directory"
-                infos["content"] = []
-
-                # Mettre à jour la table des fichiers
-                if path == self.root:
-                    self.table.append(infos)
-
-                else:
-                    directory_infos["content"].append(infos)
-
-                # Créer les informations du répertoire pour récupérer ses éléments
-                new_directory = directories + [element]
-
-                # Récupérer les éléments du dossier
-                self.__get_datas(path=element_path, directories=new_directory, directory_infos=infos)
-
-                # Supprimer le dossier
-                os.rmdir(element_path)
 
     def __get_key(self):
         # Vérifier si la clé a été chargée
@@ -119,14 +46,101 @@ class VDCrypt:
 
         self.f = Fernet(self.key)
 
-    def __create_crypted_container_content(self):
+    def __get_datas(self, path, directories, directory_infos=None):
+        # Récupérer les éléments (fichiers et dossiers)
+        listdir = os.listdir(path)
+        if "System Volume Information" in listdir:
+            listdir.remove("System Volume Information")
+
+        # Récupérer uniquement les dossiers
+        fileslistdir = listdir.copy()
+        for element in fileslistdir:
+            element_path = os.path.join(path, element)
+            if os.path.isdir(element_path):
+                fileslistdir.remove(element)
+
+        # Récupérer les données des fichiers
+        for element in listdir:
+            # Récupérer le chemin de l'élément (probablement à changer car prend pas en compte sous dossiers jpense)
+            element_path = os.path.join(path, element)
+
+            print(f"\n\n---------- {element_path} ----------")
+
+            # Vérifier si l'élément est un fichier
+            if os.path.isfile(element_path):
+                """ RECUPERATION DONNEES FICHIERS """
+                # Récupérer le contenu du fichier
+                with open(element_path, "rb") as file:
+                    file_content = file.read()
+                    print(f"{element_path}'s content : {file_content}")
+                    crypted_file_content = self.f.encrypt(file_content)  # Chiffrer le contenu du fichier
+                    print(f"{element_path}'s content : {crypted_file_content}")
+
+                    # Ajouter les donnés chiffrées du fichier à la liste des données chiffrées des fichiers
+                    self.crypted_datas.extend(crypted_file_content)
+                    print(f"Données chiffrées : {self.crypted_datas}")
+
+                    file.close()
+
+                """ CREATION TABLE """
+                # Ajouter les métadonnées du fichier
+                infos = {}
+                infos["name"] = element
+                infos["type"] = "file"
+                infos["size"] = os.path.getsize(element_path)
+                infos["crypted_size"] = len(crypted_file_content)
+
+                # Définir là où le fichier commence et se termine (version claire et chiffrée)
+                infos["start"] = self.previous_element_end
+                infos["crypted_start"] = self.previous_crypted_element_end
+
+                infos["end"] = infos["start"] + infos["size"]  # Calculer là où le fichier se termine
+                infos["crypted_end"] = infos["crypted_start"] + infos["crypted_size"]  # Pour la version chiffrée
+
+                # Mettre à jour la variable contenant le point de fin du précédent
+                self.previous_element_end = infos["end"]
+                self.previous_crypted_element_end = infos["crypted_end"]
+
+                # Mettre à jour la table des fichiers
+                if path == self.root:
+                    self.table.append(infos)
+
+                else:
+                    directory_infos["content"].append(infos)
+
+                print(f"Table : {self.table}")
+
+                # Supprimer le fichier
+                os.remove(element_path)
+
+            elif os.path.isdir(element_path):
+                # Ajouter les métadonnées du dossier
+                infos = {}
+                infos["name"] = element
+                infos["type"] = "directory"
+                infos["content"] = []
+
+                # Mettre à jour la table des fichiers
+                if path == self.root:
+                    self.table.append(infos)
+
+                else:
+                    directory_infos["content"].append(infos)
+
+                # Créer les informations du répertoire pour récupérer ses éléments
+                new_directory = directories + [element]
+
+                # Récupérer les éléments du dossier
+                self.__get_datas(path=element_path, directories=new_directory, directory_infos=infos)
+
+                # Supprimer le dossier
+                os.rmdir(element_path)
+
+    def __create_container_content(self):
         # Créer le contenu du container
         self.container_content.extend(self.header)
         self.container_content.extend(self.table)
-        self.container_content.extend(self.datas)
-
-        """ Chiffrer le contenu du container """
-        self.container_content = self.f.encrypt(bytes(self.container_content))
+        self.container_content.extend(self.crypted_datas)
 
     def create_container(self):
         # Récupérer les données des fichiers & créer la table
@@ -139,8 +153,8 @@ class VDCrypt:
         table_bytes = len(self.table)  # Récupérer la taille de la table
         self.header = struct.pack(">Q", table_bytes)  # Mettre le header en bytes
 
-        # Créer le contenu chiffré du container
-        self.__create_crypted_container_content()
+        # Créer le contenu du container
+        self.__create_container_content()
 
         """ SAUVEGARDE """
         vd_path = os.path.join(self.root, "vdisk.vdcr")
@@ -159,7 +173,8 @@ class VDCrypt:
                 # Ecrire le contenu du fichier dans le fichier
                 with open(element_path, "wb") as file:
                     # Ecrire du byte de départ au byte de fin
-                    file.write(self.datas[element["start"]:element["end"]])
+                    decrypted_file_content = self.f.decrypt(self.datas[element["crypted_start"]:element["crypted_end"]])
+                    file.write(decrypted_file_content)
                     file.close()
 
             elif element["type"] == "directory":
@@ -169,26 +184,8 @@ class VDCrypt:
                 # Créer les éléments du dossier
                 self.__set_datas(path=element_path, directory=element["content"])
 
-    def __get_clear_container_content(self):
-        """ Déchiffrer le contenu et le re-sauvegarder """
-        # Charger le fichier chiffré
-        vd_path = os.path.join(self.root, "vdisk.vdcr")
-        with open(vd_path, "rb") as vd_file:
-            vd_file_content = vd_file.read()
-            vd_file.close()
-
-        self.container_content = self.f.decrypt(vd_file_content)
-
-        # Réécrire le contenu déchiffré
-        with open(vd_path, "wb") as vd_file:
-            vd_file.write(self.container_content)
-            vd_file.close()
-
     def load_container(self):
         """ CHARGEMENT DU FICHIER """
-        # Déchiffrer le contenu du container
-        self.__get_clear_container_content()
-
         vd_path = os.path.join(self.root, "vdisk.vdcr")
         with open(vd_path, "rb") as vd_file:
             self.header = struct.unpack(">Q", vd_file.read(8))[0]
