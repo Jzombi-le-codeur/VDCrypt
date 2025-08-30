@@ -39,7 +39,7 @@ class VDCrypt:
             key_file_path = os.path.join(self.key_file_location, "key.json")
             if os.path.exists(key_file_path):
                 # Charger le fichier contenant la clé
-                with open("key.json", "r") as key_file:
+                with open(key_file_path, "r") as key_file:
                     key_file_content = json.load(key_file)
 
                 # Récupérer la clé
