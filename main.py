@@ -3,6 +3,7 @@ import pathlib
 import json
 import struct
 from cryptography.fernet import Fernet
+import psutil
 
 
 class VDCrypt:
@@ -13,7 +14,8 @@ class VDCrypt:
         self.key_file_location = "."
         self.key = None
         self.f = None
-        self.__get_key()  # Charger la clé
+        self.__get_key()  # Charger la clés
+        self.usable_ram = 0
         self.header = None
         self.datas = bytearray()
         self.crypted_datas = bytearray()
@@ -47,6 +49,18 @@ class VDCrypt:
                     key_file.close()
 
         self.f = Fernet(self.key)
+
+    def __get_avaiable_ram(self):
+        # Obtenir la RAM disponible
+        avaiable_ram = psutil.virtual_memory().available
+
+        # Calculer la RAM utilisable
+        ram_limit_go = 1*1024**3  # Limite de RAM en GO
+        if avaiable_ram < ram_limit_go:
+            self.usable_ram = 0
+
+        else:
+            self.usable_ram = avaiable_ram - ram_limit_go
 
     def __get_datas(self, path, directories, directory_infos=None):
         # Récupérer les éléments (fichiers et dossiers)
