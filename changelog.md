@@ -1,12 +1,22 @@
-# Version 0.7.0.1
+# Version 0.7.0.2
 
 # Ajouts
-- Ajout de la librairie `pycryptodome` pour le chiffrage chunk par chunk des fichiers
-- Ajout de `self.nonce` qui stocke le nonce
+- Ajout d'un système de compression des données du fichier chunk par chunk avant son chiffrage
+- Ajout d'un système de chiffrage se faisant *chunk par chunk* sur les données compressées
 
 # Modifications
-- Remplacement des méthodes de chiffrage de `cryptography` par celles de `pycryptodome`
-- `self.f` est renommé `self.cipher`
+- L'ordre des éléments dans le container est maintenant `[header][datas][table]`.  
+Ainsi :
+  - Le header n'est plus composé de la taille de la table mais de celle de l'ensemble des données des fichiers containeurisées
+- `__get_avaible_ram()` renvoie maintenant une erreur s'il n'y a pas assez de RAM
+- `self.previous_element_end` contient maintenant la position de la fin du fichier compressé et chiffré
+- Les métadonnées `start` et `end` contiennent maintenant respectivement les positions du début et de la fin du fichier compressé et chiffré
+- La métadonnée `crypted_size` est renommé `infos["virtual_size"]`
 
 # Suppressions
-- Suppression de la librairie `cryptography`, remplacée par `pycryptodome`
+- Suppression de l'ancien système de chiffrage qui opérait en une fois sur le fichier entier
+- Suppression de la méthode `__create_container_content()`
+- Supression des métadonnées `crypted_start` et `crypted_end`
+- Suppression de l'attribut `self.previous_crypted_element_end`
+- Suppression de `self.table_length`
+- Suppression des `close()` après utilisation des fichiers (les `with` ferment déjà le fichier)

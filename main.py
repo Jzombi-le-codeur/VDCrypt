@@ -2,16 +2,18 @@ import os
 import pathlib
 import json
 import struct
+import sys
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 import psutil
 import base64
+import tempfile
+import zstandard
 
 
 class VDCrypt:
     def __init__(self):
         self.format = "vdscc"
-        self.table_length = 0
         self.root = pathlib.Path("F:\\")
         self.key_file_location = "."
         self.key = None
@@ -19,12 +21,15 @@ class VDCrypt:
         self.cipher = None
         self.__get_key()  # Charger la clés
         self.usable_ram = 0
+        self.cctx = zstandard.ZstdCompressor(level=9)
+        self.dctx = zstandard.ZstdDecompressor()
+        self.vd_path = os.path.join(self.root, "vdisk.vdcr")
         self.header = None
         self.datas = bytearray()
         self.crypted_datas = bytearray()
         self.table = []  # Voir "test template table.json"
+        self.virtual_file_size = 0
         self.previous_element_end = 0
-        self.previous_crypted_element_end = 0
         self.container_content = bytearray()
 
     def __get_key(self):
@@ -36,7 +41,6 @@ class VDCrypt:
                 # Charger le fichier contenant la clé
                 with open("key.json", "r") as key_file:
                     key_file_content = json.load(key_file)
-                    key_file.close()
 
                 # Récupérer la clé
                 self.key = base64.b64decode(key_file_content["key"].encode("utf-8"))
@@ -54,7 +58,6 @@ class VDCrypt:
                         "nonce": base64.b64encode(self.nonce).decode("utf-8")
                     }
                     json.dump(key_file_content, key_file)
-                    key_file.close()
 
         self.cipher = AES.new(self.key, AES.MODE_CTR, nonce=self.nonce)
 
@@ -65,7 +68,7 @@ class VDCrypt:
         # Calculer la RAM utilisable
         ram_limit_go = 1*1024**3  # Limite de RAM en GO
         if avaiable_ram < ram_limit_go:
-            self.usable_ram = 0
+            raise MemoryError("Pas assez de mémoire pour compresser/chiffrer le fichier")
 
         else:
             self.usable_ram = avaiable_ram - ram_limit_go
@@ -90,35 +93,83 @@ class VDCrypt:
 
             # Vérifier si l'élément est un fichier
             if os.path.isfile(element_path):
-                """ RECUPERATION DONNEES FICHIERS """
-                # Récupérer le contenu du fichier
-                with open(element_path, "rb") as file:
-                    file_content = file.read()
-                    crypted_file_content = self.cipher.encrypt(file_content)  # Chiffrer le contenu du fichier
-
-                    # Ajouter les donnés chiffrées du fichier à la liste des données chiffrées des fichiers
-                    self.crypted_datas.extend(crypted_file_content)
-
-                    file.close()
-
                 """ CREATION TABLE """
                 # Ajouter les métadonnées du fichier
                 infos = {}
                 infos["name"] = element
                 infos["type"] = "file"
                 infos["size"] = os.path.getsize(element_path)
-                infos["crypted_size"] = len(crypted_file_content)
+
+                """ RECUPERATION DONNEES FICHIERS """
+                # Récupérer le contenu du fichier
+
+                # COMPRESSION DONNÉES
+                with open(element_path, "rb") as file:
+                    with tempfile.NamedTemporaryFile(dir=self.root, delete=False, mode="wb") as temp_data_file:
+                        temp_data_file_name = temp_data_file.name  # Récupérer le nom du fichier temporaire
+
+                        # Compresser le fichier par chunks
+                        with self.cctx.stream_writer(temp_data_file) as compressor:
+                            while True:
+                                # Obtenir la RAM dispo pour récupérer un chunk de sa taille
+                                try:
+                                    self.__get_avaiable_ram()
+
+                                except MemoryError as e:
+                                    print(e)
+                                    sys.exit()
+
+                                # Récupérer un chunk
+                                file_chunk = file.read(self.usable_ram)
+
+                                # Arrêter la compression si tout le fichier a été compressé
+                                if not file_chunk:
+                                    break
+
+                                # Compresser les données et les écrire
+                                compressor.write(file_chunk)
+
+                # Supprimer le fichier original
+                os.remove(element_path)
+
+                # CHIFFRAGE DONNÉES
+                with open(temp_data_file_name, "rb") as temp_data_file:
+                    with open(self.vd_path, "ab") as temp_datas_file:
+                        while True:
+                            # Obtenir la RAM dispo pour récupérer un chunk de sa taille
+                            try:
+                                self.__get_avaiable_ram()
+
+                            except MemoryError as e:
+                                print(e)
+                                sys.exit()
+
+                            # Récupérer un chunk
+                            file_chunk = temp_data_file.read(self.usable_ram)
+
+                            # Arrêter le chiffrage si tout le fichier a été chiffré
+                            if not file_chunk:
+                                break
+
+                            # Chiffrer le chunk & écrire dans datas
+                            crypted_data = self.cipher.encrypt(file_chunk)
+                            self.virtual_file_size += len(crypted_data)  # Ajouter la taille du chunk à la taille du fichier
+                            # conteneurisé
+                            temp_datas_file.write(crypted_data)
+
+                os.remove(temp_data_file_name)  # Supprimer le fichier temporaire
+
+                """ Ajouts infos données à la table """
+                # Connaître la taille des données du fichier conteneurisé
+                infos["virtual_size"] = self.virtual_file_size
 
                 # Définir là où le fichier commence et se termine (version claire et chiffrée)
                 infos["start"] = self.previous_element_end
-                infos["crypted_start"] = self.previous_crypted_element_end
 
-                infos["end"] = infos["start"] + infos["size"]  # Calculer là où le fichier se termine
-                infos["crypted_end"] = infos["crypted_start"] + infos["crypted_size"]  # Pour la version chiffrée
+                infos["end"] = infos["start"] + infos["virtual_size"]  # Calculer là où le fichier se termine
 
                 # Mettre à jour la variable contenant le point de fin du précédent
                 self.previous_element_end = infos["end"]
-                self.previous_crypted_element_end = infos["crypted_end"]
 
                 # Mettre à jour la table des fichiers
                 if path == self.root:
@@ -126,9 +177,6 @@ class VDCrypt:
 
                 else:
                     directory_infos["content"].append(infos)
-
-                # Supprimer le fichier
-                os.remove(element_path)
 
             elif os.path.isdir(element_path):
                 # Ajouter les métadonnées du dossier
@@ -153,20 +201,19 @@ class VDCrypt:
                 # Supprimer le dossier
                 os.rmdir(element_path)
 
+    def __allocate_header(self):
+        with open(self.vd_path, "wb") as virtual_disk_file:
+            temp_header = struct.pack("14s", b"\x00" * 14)
+            virtual_disk_file.write(temp_header)
+
     def __create_header(self):
-        # Récupérer la taille de la table
-        self.table_length = len(self.table)
-
         # Packer le format du container (en 6 octets) + la table (en 8 octets)
-        self.header = struct.pack(">6sQ", self.format.encode("utf-8"), self.table_length)
-
-    def __create_container_content(self):
-        # Créer le contenu du container
-        self.container_content.extend(self.header)
-        self.container_content.extend(self.table)
-        self.container_content.extend(self.crypted_datas)
+        self.header = struct.pack(">6sQ", self.format.encode("utf-8"), self.virtual_file_size)
 
     def create_container(self):
+        # Allouer de l'espace pour le header
+        self.__allocate_header()
+
         # Récupérer les données des fichiers & créer la table
         self.__get_datas(path=self.root, directories=[self.root])
 
@@ -176,14 +223,13 @@ class VDCrypt:
         # Créer le header
         self.__create_header()
 
-        # Créer le contenu du container
-        self.__create_container_content()
-
         """ SAUVEGARDE """
-        vd_path = os.path.join(self.root, "vdisk.vdcr")
-        with open(vd_path, "wb") as vd_file:
-            vd_file.write(self.container_content)
-            vd_file.close()  # Fermer les fichiers
+        with open(self.vd_path, "r+b") as vd_file:
+            # Sauvegarder le header
+            vd_file.seek(0)
+            vd_file.write(self.header)
+            vd_file.seek(0, os.SEEK_END)
+            vd_file.write(self.table)
 
     def __get_header(self):
         # Unpacker le header
@@ -208,9 +254,10 @@ class VDCrypt:
                 # Ecrire le contenu du fichier dans le fichier
                 with open(element_path, "wb") as file:
                     # Ecrire du byte de départ au byte de fin
-                    decrypted_file_content = self.cipher.decrypt(self.datas[element["crypted_start"]:element["crypted_end"]])
+                    decrypted_file_content = self.cipher.decrypt(
+                        self.datas[element["crypted_start"]:element["crypted_end"]]
+                    )
                     file.write(decrypted_file_content)
-                    file.close()
 
             elif element["type"] == "directory":
                 # Créer le dossier
@@ -221,8 +268,7 @@ class VDCrypt:
 
     def load_container(self):
         """ CHARGEMENT DU FICHIER """
-        vd_path = os.path.join(self.root, "vdisk.vdcr")
-        with open(vd_path, "rb") as vd_file:
+        with open(self.vd_path, "rb") as vd_file:
             self.header = vd_file.read(14)  # Récupérer le header packé
             self.__get_header()  # Récupérer le header, le format et la longueur de la table
             self.table = vd_file.read(self.table_length).decode("utf-8")  # Récupérer la table
@@ -233,11 +279,11 @@ class VDCrypt:
         self.__set_datas(path=self.root, directory=self.table)  # Recréer les fichiers et dossiers
 
         # Supprimer les fichiers de table
-        os.remove(vd_path)
+        os.remove(self.vd_path)
 
     def run(self):
-        # self.create_container()
-        self.load_container()
+        self.create_container()
+        # self.load_container()
 
 
 if __name__ == "__main__":
