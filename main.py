@@ -2,8 +2,10 @@ import os
 import pathlib
 import json
 import struct
-from cryptography.fernet import Fernet
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
 import psutil
+import base64
 
 
 class VDCrypt:
@@ -13,7 +15,8 @@ class VDCrypt:
         self.root = pathlib.Path("F:\\")
         self.key_file_location = "."
         self.key = None
-        self.f = None
+        self.nonce = None
+        self.cipher = None
         self.__get_key()  # Charger la clés
         self.usable_ram = 0
         self.header = None
@@ -36,19 +39,24 @@ class VDCrypt:
                     key_file.close()
 
                 # Récupérer la clé
-                self.key = key_file_content["key"].encode("utf-8")
+                self.key = base64.b64decode(key_file_content["key"].encode("utf-8"))
+                self.nonce = base64.b64decode(key_file_content["nonce"].encode("utf-8"))
 
             else:
-                # Générer la clé
-                self.key = Fernet.generate_key()
+                # Générer la clé & le nonce
+                self.key = get_random_bytes(16)
+                self.nonce = get_random_bytes(8)
 
                 # Sauvegarder la clé
                 with open(key_file_path, "w") as key_file:
-                    key_file_content = {"key": self.key.decode("utf-8")}
+                    key_file_content = {
+                        "key": base64.b64encode(self.key).decode("utf-8"),
+                        "nonce": base64.b64encode(self.nonce).decode("utf-8")
+                    }
                     json.dump(key_file_content, key_file)
                     key_file.close()
 
-        self.f = Fernet(self.key)
+        self.cipher = AES.new(self.key, AES.MODE_CTR, nonce=self.nonce)
 
     def __get_avaiable_ram(self):
         # Obtenir la RAM disponible
@@ -86,7 +94,7 @@ class VDCrypt:
                 # Récupérer le contenu du fichier
                 with open(element_path, "rb") as file:
                     file_content = file.read()
-                    crypted_file_content = self.f.encrypt(file_content)  # Chiffrer le contenu du fichier
+                    crypted_file_content = self.cipher.encrypt(file_content)  # Chiffrer le contenu du fichier
 
                     # Ajouter les donnés chiffrées du fichier à la liste des données chiffrées des fichiers
                     self.crypted_datas.extend(crypted_file_content)
@@ -200,7 +208,7 @@ class VDCrypt:
                 # Ecrire le contenu du fichier dans le fichier
                 with open(element_path, "wb") as file:
                     # Ecrire du byte de départ au byte de fin
-                    decrypted_file_content = self.f.decrypt(self.datas[element["crypted_start"]:element["crypted_end"]])
+                    decrypted_file_content = self.cipher.decrypt(self.datas[element["crypted_start"]:element["crypted_end"]])
                     file.write(decrypted_file_content)
                     file.close()
 

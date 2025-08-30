@@ -1,5 +1,12 @@
-# Version 0.7.0.0
+# Version 0.7.0.1
 
 # Ajouts
-- Ajout d'une méthode `__get_avaiable_ram()` qui calcule la RAM disponible pour le programme (avec une limite d'actuellement 1GB de RAM inutilisable pour le programme)
-- Ajout de la librairie `psutil` nécessaire pour récupérer la RAM disponible
+- Ajout de la librairie `pycryptodome` pour le chiffrage chunk par chunk des fichiers
+- Ajout de `self.nonce` qui stocke le nonce
+
+# Modifications
+- Remplacement des méthodes de chiffrage de `cryptography` par celles de `pycryptodome`
+- `self.f` est renommé `self.cipher`
+
+# Suppressions
+- Suppression de la librairie `cryptography`, remplacée par `pycryptodome`
