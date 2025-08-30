@@ -28,7 +28,7 @@ class VDCrypt:
         self.datas = bytearray()
         self.crypted_datas = bytearray()
         self.table = []  # Voir "test template table.json"
-        self.virtual_file_size = 0
+        self.virtual_files_size = 0
         self.previous_element_end = 0
         self.container_content = bytearray()
 
@@ -133,6 +133,7 @@ class VDCrypt:
                 os.remove(element_path)
 
                 # CHIFFRAGE DONNÉES
+                virtual_file_size = 0
                 with open(temp_data_file_name, "rb") as temp_data_file:
                     with open(self.vd_path, "ab") as temp_datas_file:
                         while True:
@@ -153,15 +154,16 @@ class VDCrypt:
 
                             # Chiffrer le chunk & écrire dans datas
                             crypted_data = self.cipher.encrypt(file_chunk)
-                            self.virtual_file_size += len(crypted_data)  # Ajouter la taille du chunk à la taille du fichier
+                            virtual_file_size += len(crypted_data)  # Ajouter la taille du chunk à la taille du fichier
                             # conteneurisé
                             temp_datas_file.write(crypted_data)
 
+                self.virtual_files_size += virtual_file_size  # Ajouter la taille du fichier traîté à l'ensemble
                 os.remove(temp_data_file_name)  # Supprimer le fichier temporaire
 
                 """ Ajouts infos données à la table """
                 # Connaître la taille des données du fichier conteneurisé
-                infos["virtual_size"] = self.virtual_file_size
+                infos["virtual_size"] = virtual_file_size
 
                 # Définir là où le fichier commence et se termine (version claire et chiffrée)
                 infos["start"] = self.previous_element_end
@@ -208,7 +210,7 @@ class VDCrypt:
 
     def __create_header(self):
         # Packer le format du container (en 6 octets) + la table (en 8 octets)
-        self.header = struct.pack(">6sQ", self.format.encode("utf-8"), self.virtual_file_size)
+        self.header = struct.pack(">6sQ", self.format.encode("utf-8"), self.virtual_files_size)
 
     def create_container(self):
         # Allouer de l'espace pour le header
