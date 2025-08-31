@@ -21,7 +21,7 @@ class VDCrypt:
         self.cipher = None
         self.__get_key()  # Charger la clés
         self.usable_ram = 0
-        self.cctx = zstandard.ZstdCompressor(level=9)
+        self.cctx = zstandard.ZstdCompressor(level=4)
         self.dctx = zstandard.ZstdDecompressor()
         self.vd_path = os.path.join(self.root, "vdisk.vdcr")
         self.header = None
@@ -31,6 +31,7 @@ class VDCrypt:
         self.virtual_files_size = 0
         self.previous_element_end = 0
         self.container_content = bytearray()
+        self.decompressed_datas_file_name = None  # Fichier temp des données des fichiers déchiffrés & décompressés
 
     def __get_key(self):
         # Vérifier si la clé a été chargée
@@ -79,6 +80,9 @@ class VDCrypt:
         if "System Volume Information" in listdir:
             listdir.remove("System Volume Information")
 
+        if "vdisk.vdcr" in listdir:
+            listdir.remove("vdisk.vdcr")
+
         # Récupérer uniquement les dossiers
         fileslistdir = listdir.copy()
         for element in fileslistdir:
@@ -104,6 +108,7 @@ class VDCrypt:
                 # Récupérer le contenu du fichier
 
                 # COMPRESSION DONNÉES
+                print("COMPRESSION")
                 with open(element_path, "rb") as file:
                     with tempfile.NamedTemporaryFile(dir=self.root, delete=False, mode="wb") as temp_data_file:
                         temp_data_file_name = temp_data_file.name  # Récupérer le nom du fichier temporaire
@@ -116,11 +121,12 @@ class VDCrypt:
                                     self.__get_avaiable_ram()
 
                                 except MemoryError as e:
-                                    print(e)
                                     sys.exit()
 
                                 # Récupérer un chunk
                                 file_chunk = file.read(self.usable_ram)
+                                print(f"RAM : {self.usable_ram}")
+                                print(f"Chunk pdt compression : {file_chunk}")
 
                                 # Arrêter la compression si tout le fichier a été compressé
                                 if not file_chunk:
@@ -134,6 +140,7 @@ class VDCrypt:
 
                 # CHIFFRAGE DONNÉES
                 virtual_file_size = 0
+                print("CHIFFRAGE")
                 with open(temp_data_file_name, "rb") as temp_data_file:
                     with open(self.vd_path, "ab") as temp_datas_file:
                         while True:
@@ -142,11 +149,12 @@ class VDCrypt:
                                 self.__get_avaiable_ram()
 
                             except MemoryError as e:
-                                print(e)
                                 sys.exit()
 
                             # Récupérer un chunk
                             file_chunk = temp_data_file.read(self.usable_ram)
+                            print(f"RAM : {self.usable_ram}")
+                            print(f"Chiffrage chunk : {file_chunk}")
 
                             # Arrêter le chiffrage si tout le fichier a été chiffré
                             if not file_chunk:
@@ -168,7 +176,7 @@ class VDCrypt:
                 # Définir là où le fichier commence et se termine (version claire et chiffrée)
                 infos["start"] = self.previous_element_end
 
-                infos["end"] = infos["start"] + infos["virtual_size"]  # Calculer là où le fichier se termine
+                infos["end"] = infos["start"] + infos["size"]  # Calculer là où le fichier se termine
 
                 # Mettre à jour la variable contenant le point de fin du précédent
                 self.previous_element_end = infos["end"]
@@ -242,10 +250,10 @@ class VDCrypt:
         self.format = self.format.split(b"\x00")  # Supprimer le padding
         self.format = self.format[0].decode("utf-8")  # Récupérer le format
 
-        # Récupérer la taille de la table
-        self.table_length = unpacked_header[1]
+        # Récupérer la taille des données des fichiers
+        self.virtual_files_size = unpacked_header[1]
 
-    def __set_datas(self, path, directory):
+    def __set_datas(self, path, directory, datas_file_path):
         # Parcourir les éléments
         for element in directory:
             # Obtenir le chemin de l'élément
@@ -255,33 +263,113 @@ class VDCrypt:
             if element["type"] == "file":
                 # Ecrire le contenu du fichier dans le fichier
                 with open(element_path, "wb") as file:
-                    # Ecrire du byte de départ au byte de fin
-                    decrypted_file_content = self.cipher.decrypt(
-                        self.datas[element["crypted_start"]:element["crypted_end"]]
-                    )
-                    file.write(decrypted_file_content)
+                    # Lire les données
+                    with open(datas_file_path, "rb") as datas_file:
+                        datas_file.seek(element["start"], 0)  # Se placer au début des données d'un fichier
+
+                        # Sauvegarder la quantité de données lue
+                        readed_file_datas = 0  # Pour un fichier
+
+                        while True:
+                            self.__get_avaiable_ram()
+                            # Vérifier qu'on ne risque pas de lire au-delà des données du fichier
+                            if (element["size"] - readed_file_datas) < self.usable_ram:
+                                # Lire uniquement jusqu'à la fin des données du fichier (et non celles du suivant)
+                                chunk = datas_file.read(element["size"] - readed_file_datas)
+
+                            else:
+                                chunk = datas_file.read(self.usable_ram)  # Lire un chunk
+
+                            readed_file_datas += len(chunk)  # Signaler qu'une certaine quantité de données a été lue
+
+                            # Stopper la récupération si toutes les données du fichier ont été traîtées
+                            if not chunk:
+                                break
+
+                            # Ecrire les données du fichier dans le fichier
+                            file.write(chunk)
 
             elif element["type"] == "directory":
                 # Créer le dossier
                 os.mkdir(element_path)
 
                 # Créer les éléments du dossier
-                self.__set_datas(path=element_path, directory=element["content"])
+                self.__set_datas(path=element_path, directory=element["content"],
+                                 datas_file_path=self.decompressed_datas_file_name)
 
     def load_container(self):
         """ CHARGEMENT DU FICHIER """
+        """ RECUPERATION DES INFOS PAR RAPPORT AUX DONNÉES (header + métadonnées) """
         with open(self.vd_path, "rb") as vd_file:
+            # Récupérer le header
             self.header = vd_file.read(14)  # Récupérer le header packé
             self.__get_header()  # Récupérer le header, le format et la longueur de la table
-            self.table = vd_file.read(self.table_length).decode("utf-8")  # Récupérer la table
+
+            vd_file.seek(14 + self.virtual_files_size)
+
+            # Récupérer la table
+            self.table = vd_file.read().decode("utf-8")  # Récupérer la table
             self.table = json.loads(self.table)  # Avoir le bon format de la table
-            self.datas = vd_file.read()  # Récupérer les données des fichiers
+
+        """ RECUPERATION DES DONNÉES """
+        # Déchiffrer les données
+        with open(self.vd_path, "rb") as vd_file:
+            vd_file.seek(14)
+            # Déchiffrer les données
+            with tempfile.NamedTemporaryFile(dir=self.root, mode="wb", delete=False) as temp_data_files:
+                temp_data_files_name = temp_data_files.name  # Sauvegarder le nom du fichier
+                readed_datas = 0  # Stocker la quantité de données lues
+                while True:
+                    self.__get_avaiable_ram()
+                    # Vérifier qu'on ne risque pas de lire au-delà des données des fichiers
+                    if (self.virtual_files_size - readed_datas) < self.usable_ram:
+                        # Lire uniquement jusqu'à la fin des données des fichiers (et non la table)
+                        chunk = vd_file.read(self.virtual_files_size - readed_datas)
+
+                    else:
+                        chunk = vd_file.read(self.usable_ram)  # Lire un chunk
+
+                    readed_datas += len(chunk)  # Signaler qu'une certaine quantité de données a été lue
+
+                    # Stopper la récupération si toutes les données ont été traîtées
+                    if not chunk:
+                        break
+
+                    # Déchiffrer le chunk
+                    chunk = self.cipher.decrypt(chunk)
+
+                    # Sauvegarder le chunk déchiffré
+                    temp_data_files.write(chunk)
+
+        # Supprimer le container
+        os.remove(self.vd_path)
+
+        # Décompresser les données
+        with open(temp_data_files_name, "rb") as temp_datas_files:
+            with tempfile.NamedTemporaryFile(dir=self.root, mode="wb", delete=False) as decompressed_datas_file:
+                self.decompressed_datas_file_name = decompressed_datas_file.name
+                with self.dctx.stream_reader(temp_datas_files) as decompressor:
+                    while True:
+                        # Récupérer un chunk
+                        self.__get_avaiable_ram()  # Voir quelle quantité de données il est possible de récupérer
+                        chunk = decompressor.read(self.usable_ram)
+
+                        # Stopper la récupération si toutes les données ont été traîtées
+                        if not chunk:
+                            break
+
+                        # Décompresser le chunk
+                        decompressed_datas_file.write(chunk)
+
+        # Supprimer le fichier temporaire
+        os.remove(temp_data_files_name)
 
         """ Création fichiers """
-        self.__set_datas(path=self.root, directory=self.table)  # Recréer les fichiers et dossiers
+        # Recréer les fichiers et dossiers
+        self.__set_datas(path=self.root, directory=self.table, datas_file_path=self.decompressed_datas_file_name)
 
-        # Supprimer les fichiers de table
-        os.remove(self.vd_path)
+        # Supprimer le fichier temporaire contenant les données déchiffrées et décompréssées
+        os.remove(self.decompressed_datas_file_name)
 
     def run(self):
         self.create_container()
