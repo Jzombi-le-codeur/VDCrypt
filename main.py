@@ -9,6 +9,7 @@ import psutil
 import base64
 import tempfile
 import zstandard
+import time
 
 
 class VDCrypt:
@@ -72,7 +73,7 @@ class VDCrypt:
             raise MemoryError("Pas assez de mémoire pour compresser/chiffrer le fichier")
 
         else:
-            self.usable_ram = avaiable_ram - ram_limit_go
+            self.usable_ram = 128*1024**2
 
     def __get_datas(self, path, directories, directory_infos=None):
         # Récupérer les éléments (fichiers et dossiers)
@@ -119,13 +120,13 @@ class VDCrypt:
                                 # Obtenir la RAM dispo pour récupérer un chunk de sa taille
                                 try:
                                     self.__get_avaiable_ram()
+                                    print(f"RAM : {self.usable_ram}")
 
                                 except MemoryError as e:
                                     sys.exit()
 
                                 # Récupérer un chunk
                                 file_chunk = file.read(self.usable_ram)
-                                print(f"RAM : {self.usable_ram}")
                                 print(f"Chunk pdt compression : {file_chunk}")
 
                                 # Arrêter la compression si tout le fichier a été compressé
@@ -147,13 +148,13 @@ class VDCrypt:
                             # Obtenir la RAM dispo pour récupérer un chunk de sa taille
                             try:
                                 self.__get_avaiable_ram()
+                                print(f"RAM : {self.usable_ram}")
 
                             except MemoryError as e:
                                 sys.exit()
 
                             # Récupérer un chunk
                             file_chunk = temp_data_file.read(self.usable_ram)
-                            print(f"RAM : {self.usable_ram}")
                             print(f"Chiffrage chunk : {file_chunk}")
 
                             # Arrêter le chiffrage si tout le fichier a été chiffré
@@ -313,6 +314,7 @@ class VDCrypt:
 
         """ RECUPERATION DES DONNÉES """
         # Déchiffrer les données
+        print("Déchiffrement")
         with open(self.vd_path, "rb") as vd_file:
             vd_file.seek(14)
             # Déchiffrer les données
@@ -321,6 +323,7 @@ class VDCrypt:
                 readed_datas = 0  # Stocker la quantité de données lues
                 while True:
                     self.__get_avaiable_ram()
+                    print(f"RAM : {self.usable_ram}")
                     # Vérifier qu'on ne risque pas de lire au-delà des données des fichiers
                     if (self.virtual_files_size - readed_datas) < self.usable_ram:
                         # Lire uniquement jusqu'à la fin des données des fichiers (et non la table)
@@ -328,6 +331,8 @@ class VDCrypt:
 
                     else:
                         chunk = vd_file.read(self.usable_ram)  # Lire un chunk
+
+                    print(f"Chiffrage chunk : {chunk}")
 
                     readed_datas += len(chunk)  # Signaler qu'une certaine quantité de données a été lue
 
@@ -352,7 +357,9 @@ class VDCrypt:
                     while True:
                         # Récupérer un chunk
                         self.__get_avaiable_ram()  # Voir quelle quantité de données il est possible de récupérer
+                        print(f"RAM : {self.usable_ram}")
                         chunk = decompressor.read(self.usable_ram)
+                        print(f"Chiffrage chunk : {chunk}")
 
                         # Stopper la récupération si toutes les données ont été traîtées
                         if not chunk:
@@ -372,8 +379,11 @@ class VDCrypt:
         os.remove(self.decompressed_datas_file_name)
 
     def run(self):
-        self.create_container()
-        # self.load_container()
+        start = time.perf_counter()
+        # self.create_container()
+        self.load_container()
+        end = time.perf_counter()
+        print(f"Programme exécuté en {int(end-start)} secondes")
 
 
 if __name__ == "__main__":
